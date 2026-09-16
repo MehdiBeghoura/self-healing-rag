@@ -4,8 +4,8 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from self_healing_rag.config import settings
+from self_healing_rag.infrastructure.database import models  # noqa: F401
 from self_healing_rag.infrastructure.database.base import Base
-from self_healing_rag.infrastructure.database import models
 
 config = context.config
 

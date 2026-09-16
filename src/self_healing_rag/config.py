@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     app_name: str = "Self-Healing RAG"
     environment: Literal["development", "testing", "production"] = "development"
     debug: bool = True
-
+    ollama_host: str = "http://localhost:11434"
+    embedding_model: str = "qwen3-embedding:0.6b"
+    embedding_dimension: int = 1024
     postgres_user: str = Field(validation_alias="POSTGRES_USER")
     postgres_password: str = Field(validation_alias="POSTGRES_PASSWORD")
     postgres_db: str = Field(validation_alias="POSTGRES_DB")
