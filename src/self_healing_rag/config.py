@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimension: int = 1024
+    generation_model: str = "qwen2.5:3b"
     postgres_user: str = Field(validation_alias="POSTGRES_USER")
     postgres_password: str = Field(validation_alias="POSTGRES_PASSWORD")
     postgres_db: str = Field(validation_alias="POSTGRES_DB")
