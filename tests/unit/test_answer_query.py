@@ -21,11 +21,11 @@ class FakeRetrievalUseCase:
 
 class FakeGenerationProvider:
     def __init__(self) -> None:
-        self.last_question = None
+        self.last_query = None
         self.last_context = None
 
-    def generate(self, question: str, context: str) -> str:
-        self.last_question = question
+    def generate(self, query: str, context: str) -> str:
+        self.last_query = query
         self.last_context = context
         return "Generated answer"
 
@@ -60,7 +60,7 @@ def test_answer_query_retrieves_context_and_generates_answer():
     assert result == "Generated answer"
     assert retrieval.last_request.query == "How does PostgreSQL store vectors?"
     assert retrieval.last_request.top_k == 3
-    assert generation.last_question == "How does PostgreSQL store vectors?"
+    assert generation.last_query == "How does PostgreSQL store vectors?"
     assert "PostgreSQL can store vectors using pgvector." in generation.last_context
 
 

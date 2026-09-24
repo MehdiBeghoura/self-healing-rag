@@ -39,6 +39,6 @@ class AnswerQueryUseCase:
         context = build_context(chunks)
 
         return self._generation_provider.generate(
-            question=query,
+            query=query,
             context=context,
         )
