@@ -1,9 +1,5 @@
 from sqlalchemy import delete
 
-from self_healing_rag.application.use_cases.answer_query import (
-    AnswerQueryRequest,
-    AnswerQueryUseCase,
-)
 from self_healing_rag.application.use_cases.evaluate_retrieval import (
     EvaluateRetrievalUseCase,
 )
@@ -12,7 +8,6 @@ from self_healing_rag.application.use_cases.ingest_document import (
     IngestDocumentUseCase,
 )
 from self_healing_rag.application.use_cases.retrieve_documents import (
-    RetrieveDocumentsRequest,
     RetrieveDocumentsUseCase,
 )
 from self_healing_rag.infrastructure.database.ingestion import save_document
@@ -23,6 +18,7 @@ from self_healing_rag.infrastructure.llm.generation import OllamaGenerationClien
 from self_healing_rag.infrastructure.retrieval.pgvector_retriever import (
     PgVectorRetriever,
 )
+from self_healing_rag.orchestration.rag_graph import build_rag_graph
 
 
 def test_baseline_rag_end_to_end():
@@ -40,9 +36,11 @@ def test_baseline_rag_end_to_end():
         retriever=retriever,
     )
 
-    answer_use_case = AnswerQueryUseCase(
+    evaluate_use_case = EvaluateRetrievalUseCase()
+
+    rag_graph = build_rag_graph(
         retrieval_use_case=retrieve_use_case,
-        evaluation_use_case=EvaluateRetrievalUseCase(),
+        evaluation_use_case=evaluate_use_case,
         generation_provider=generation_client,
     )
 
@@ -59,29 +57,24 @@ def test_baseline_rag_end_to_end():
     )
 
     try:
-        retrieved_chunks = retrieve_use_case.execute(
-            RetrieveDocumentsRequest(
-                query="What does pgvector allow PostgreSQL to do?",
-                top_k=3,
-            )
+        result = rag_graph.invoke(
+            {
+                "query": "What does pgvector allow PostgreSQL to do?",
+                "top_k": 3,
+                "min_relevance_score": 0.0,
+            }
         )
 
-        assert retrieved_chunks
-        assert retrieved_chunks[0].title == "PostgreSQL Vector Guide"
-        assert "pgvector" in retrieved_chunks[0].content.lower()
+        assert result["retrieved_chunks"]
+        assert result["retrieved_chunks"][0]["title"] == ("PostgreSQL Vector Guide")
+        assert "pgvector" in result["retrieved_chunks"][0]["content"].lower()
 
-        result = answer_use_case.execute(
-            AnswerQueryRequest(
-                query="What does pgvector allow PostgreSQL to do?",
-                top_k=3,
-                min_relevance_score=0.0,
-            )
-        )
+        assert result["evaluation"]["success"] is True
+        assert result["evaluation"]["failure_type"] is None
 
-        assert result.evaluation.success is True
-        assert result.answer is not None
-        assert result.answer.strip()
-        assert "pgvector" in result.answer.lower()
+        assert result["answer"] is not None
+        assert result["answer"].strip()
+        assert "pgvector" in result["answer"].lower()
 
     finally:
         with SessionLocal.begin() as session:
