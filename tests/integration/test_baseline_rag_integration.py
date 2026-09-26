@@ -4,6 +4,9 @@ from self_healing_rag.application.use_cases.answer_query import (
     AnswerQueryRequest,
     AnswerQueryUseCase,
 )
+from self_healing_rag.application.use_cases.evaluate_retrieval import (
+    EvaluateRetrievalUseCase,
+)
 from self_healing_rag.application.use_cases.ingest_document import (
     IngestDocumentRequest,
     IngestDocumentUseCase,
@@ -39,6 +42,7 @@ def test_baseline_rag_end_to_end():
 
     answer_use_case = AnswerQueryUseCase(
         retrieval_use_case=retrieve_use_case,
+        evaluation_use_case=EvaluateRetrievalUseCase(),
         generation_provider=generation_client,
     )
 
@@ -66,15 +70,18 @@ def test_baseline_rag_end_to_end():
         assert retrieved_chunks[0].title == "PostgreSQL Vector Guide"
         assert "pgvector" in retrieved_chunks[0].content.lower()
 
-        answer = answer_use_case.execute(
+        result = answer_use_case.execute(
             AnswerQueryRequest(
                 query="What does pgvector allow PostgreSQL to do?",
                 top_k=3,
+                min_relevance_score=0.0,
             )
         )
 
-        assert answer.strip()
-        assert "pgvector" in answer.lower()
+        assert result.evaluation.success is True
+        assert result.answer is not None
+        assert result.answer.strip()
+        assert "pgvector" in result.answer.lower()
 
     finally:
         with SessionLocal.begin() as session:
