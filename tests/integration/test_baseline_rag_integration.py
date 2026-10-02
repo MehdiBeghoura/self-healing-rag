@@ -13,6 +13,9 @@ from self_healing_rag.application.use_cases.retrieve_documents import (
 from self_healing_rag.infrastructure.database.ingestion import save_document
 from self_healing_rag.infrastructure.database.models import Document
 from self_healing_rag.infrastructure.database.session import SessionLocal
+from self_healing_rag.infrastructure.llm.diagnosis import (
+    OllamaDiagnosticClient,
+)
 from self_healing_rag.infrastructure.llm.embeddings import OllamaEmbeddingClient
 from self_healing_rag.infrastructure.llm.generation import OllamaGenerationClient
 from self_healing_rag.infrastructure.retrieval.pgvector_retriever import (
@@ -24,6 +27,7 @@ from self_healing_rag.orchestration.rag_graph import build_rag_graph
 def test_baseline_rag_end_to_end():
     embedding_client = OllamaEmbeddingClient()
     generation_client = OllamaGenerationClient()
+    diagnostic_client = OllamaDiagnosticClient()
     retriever = PgVectorRetriever()
 
     ingest_use_case = IngestDocumentUseCase(
@@ -41,6 +45,7 @@ def test_baseline_rag_end_to_end():
     rag_graph = build_rag_graph(
         retrieval_use_case=retrieve_use_case,
         evaluation_use_case=evaluate_use_case,
+        diagnostic_provider=diagnostic_client,
         generation_provider=generation_client,
     )
 
@@ -75,6 +80,8 @@ def test_baseline_rag_end_to_end():
         assert result["answer"] is not None
         assert result["answer"].strip()
         assert "pgvector" in result["answer"].lower()
+
+        assert result["retry_count"] == 0
 
     finally:
         with SessionLocal.begin() as session:

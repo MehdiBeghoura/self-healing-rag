@@ -8,11 +8,10 @@ from self_healing_rag.infrastructure.llm.diagnosis import (
 )
 
 chunk = RetrievedChunk(
-      chunk_id=uuid4(),
-      document_id=uuid4(),
+    chunk_id=uuid4(),
+    document_id=uuid4(),
     content=(
-        "PostgreSQL can use pgvector to store embeddings and perform "
-        "similarity search."
+        "PostgreSQL can use pgvector to store embeddings and perform similarity search."
     ),
     source="test.md",
     title="PostgreSQL Vector Guide",
@@ -23,10 +22,7 @@ chunk = RetrievedChunk(
 request = DiagnosisRequest(
     query="How can PostgreSQL store employee salaries?",
     failure_type=FailureType.LOW_RELEVANCE,
-    reason=(
-        "Top retrieval score 0.3100 is below the minimum "
-        "relevance score 0.6000."
-    ),
+    reason=("Top retrieval score 0.3100 is below the minimum relevance score 0.6000."),
     retrieved_chunks=[chunk],
 )
 

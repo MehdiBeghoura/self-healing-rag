@@ -34,9 +34,7 @@ def test_low_relevance_can_rewrite_query():
     )
 
     assert result.action == RecoveryAction.REWRITE_QUERY
-    assert result.rewritten_query == (
-        "How does PostgreSQL store employee data?"
-    )
+    assert result.rewritten_query == ("How does PostgreSQL store employee data?")
 
 
 def test_no_documents_can_rewrite_query():
@@ -54,9 +52,7 @@ def test_no_documents_can_rewrite_query():
     )
 
     assert result.action == RecoveryAction.REWRITE_QUERY
-    assert result.rewritten_query == (
-        "PostgreSQL employee salary storage"
-    )
+    assert result.rewritten_query == ("PostgreSQL employee salary storage")
 
 
 def test_policy_stops_when_retry_limit_is_reached():

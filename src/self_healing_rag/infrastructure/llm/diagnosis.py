@@ -1,6 +1,5 @@
-from pydantic import BaseModel
-
 from ollama import Client
+from pydantic import BaseModel
 
 from self_healing_rag.application.ports.diagnosis import DiagnosisRequest
 from self_healing_rag.config import settings
@@ -68,9 +67,7 @@ class OllamaDiagnosticClient:
             },
         )
 
-        parsed = DiagnosisResponse.model_validate_json(
-            response.message.content
-        )
+        parsed = DiagnosisResponse.model_validate_json(response.message.content)
 
         return Diagnosis(
             failure_type=request.failure_type,
