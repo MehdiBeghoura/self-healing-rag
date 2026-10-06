@@ -48,6 +48,7 @@ class RAGState(RAGInputState):
 
 
 class RAGOutputState(TypedDict):
+    query: str
     answer: str | None
     retrieved_chunks: list[RetrievedChunkState]
     evaluation: RetrievalEvaluationState
