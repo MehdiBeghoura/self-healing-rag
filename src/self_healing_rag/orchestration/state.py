@@ -39,6 +39,7 @@ class RAGInputState(TypedDict):
 
 
 class RAGState(RAGInputState):
+    retrieval_query: NotRequired[str]
     retry_count: NotRequired[int]
     retrieved_chunks: NotRequired[list[RetrievedChunkState]]
     evaluation: NotRequired[RetrievalEvaluationState]
@@ -49,6 +50,7 @@ class RAGState(RAGInputState):
 
 class RAGOutputState(TypedDict):
     query: str
+    retrieval_query: str
     answer: str | None
     retrieved_chunks: list[RetrievedChunkState]
     evaluation: RetrievalEvaluationState

@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import isfinite
 
 from self_healing_rag.domain.failures import FailureType
 
@@ -17,8 +18,19 @@ def evaluate_retrieval(
     scores: Sequence[float],
     min_relevance_score: float,
 ) -> RetrievalEvaluation:
-    if not -1.0 <= min_relevance_score <= 1.0:
-        raise ValueError("min_relevance_score must be between -1 and 1")
+    if (
+        not isfinite(min_relevance_score)
+        or not -1.0 <= min_relevance_score <= 1.0
+    ):
+        raise ValueError(
+            "min_relevance_score must be finite and between -1 and 1"
+        )
+
+    for score in scores:
+        if not isfinite(score) or not -1.0 <= score <= 1.0:
+            raise ValueError(
+                "retrieval scores must be finite and between -1 and 1"
+            )
 
     document_count = len(scores)
 

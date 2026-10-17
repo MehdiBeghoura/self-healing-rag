@@ -1,4 +1,5 @@
-from uuid import uuid4
+from collections.abc import Sequence
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -25,14 +26,17 @@ class FakeRetriever:
     def __init__(self) -> None:
         self.received_embedding: list[float] | None = None
         self.received_top_k: int | None = None
+        self.received_document_ids: Sequence[UUID] | None = None
 
     def retrieve(
         self,
         embedding: list[float],
         top_k: int = 5,
+        document_ids: Sequence[UUID] | None = None,
     ) -> list[RetrievedChunk]:
         self.received_embedding = embedding
         self.received_top_k = top_k
+        self.received_document_ids = document_ids
 
         return [
             RetrievedChunk(
@@ -50,6 +54,7 @@ class FakeRetriever:
 def test_retrieve_documents_embeds_query_and_retrieves() -> None:
     embeddings = FakeEmbeddingProvider()
     retriever = FakeRetriever()
+    document_id = uuid4()
 
     use_case = RetrieveDocumentsUseCase(
         embedding_provider=embeddings,
@@ -60,12 +65,14 @@ def test_retrieve_documents_embeds_query_and_retrieves() -> None:
         RetrieveDocumentsRequest(
             query="  How does PostgreSQL use vectors?  ",
             top_k=3,
+            document_ids=(document_id,),
         )
     )
 
     assert embeddings.received_query == "How does PostgreSQL use vectors?"
     assert retriever.received_embedding == [0.1] * 1024
     assert retriever.received_top_k == 3
+    assert retriever.received_document_ids == (document_id,)
     assert len(results) == 1
 
 

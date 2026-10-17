@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+from uuid import UUID
+
 from sqlalchemy import select
 
 from self_healing_rag.application.ports.retrieval import RetrievedChunk
@@ -10,6 +13,7 @@ class PgVectorRetriever:
         self,
         embedding: list[float],
         top_k: int = 5,
+        document_ids: Sequence[UUID] | None = None,
     ) -> list[RetrievedChunk]:
         if top_k <= 0:
             raise ValueError("top_k must be greater than zero")
@@ -19,9 +23,14 @@ class PgVectorRetriever:
         statement = (
             select(Chunk, Document, distance.label("distance"))
             .join(Document, Chunk.document_id == Document.id)
-            .order_by(distance, Chunk.id)
-            .limit(top_k)
         )
+
+        if document_ids is not None:
+            statement = statement.where(
+                Chunk.document_id.in_(document_ids)
+            )
+
+        statement = statement.order_by(distance, Chunk.id).limit(top_k)
 
         with SessionLocal() as session:
             rows = session.execute(statement).all()

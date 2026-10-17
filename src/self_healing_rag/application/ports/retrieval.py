@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -19,4 +20,5 @@ class Retriever(Protocol):
         self,
         embedding: list[float],
         top_k: int = 5,
+        document_ids: Sequence[UUID] | None = None,
     ) -> list[RetrievedChunk]: ...

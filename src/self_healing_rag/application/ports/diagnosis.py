@@ -8,7 +8,8 @@ from self_healing_rag.domain.failures import FailureType
 
 @dataclass(frozen=True)
 class DiagnosisRequest:
-    query: str
+    original_query: str
+    retrieval_query: str
     failure_type: FailureType
     reason: str
     retrieved_chunks: list[RetrievedChunk]

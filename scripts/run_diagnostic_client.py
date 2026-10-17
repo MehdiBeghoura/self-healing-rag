@@ -11,7 +11,8 @@ chunk = RetrievedChunk(
     chunk_id=uuid4(),
     document_id=uuid4(),
     content=(
-        "PostgreSQL can use pgvector to store embeddings and perform similarity search."
+        "PostgreSQL can use pgvector to store embeddings "
+        "and perform similarity search."
     ),
     source="test.md",
     title="PostgreSQL Vector Guide",
@@ -19,15 +20,23 @@ chunk = RetrievedChunk(
     metadata={},
 )
 
+original_query = "How can PostgreSQL store employee salaries?"
+
 request = DiagnosisRequest(
-    query="How can PostgreSQL store employee salaries?",
+    original_query=original_query,
+    retrieval_query=original_query,
     failure_type=FailureType.LOW_RELEVANCE,
-    reason=("Top retrieval score 0.3100 is below the minimum relevance score 0.6000."),
+    reason=(
+        "Top retrieval score 0.3100 is below the "
+        "minimum relevance score 0.4000."
+    ),
     retrieved_chunks=[chunk],
 )
 
 diagnosis = OllamaDiagnosticClient().diagnose(request)
 
+print("Original query:", request.original_query)
+print("Retrieval query:", request.retrieval_query)
 print("Failure type:", diagnosis.failure_type)
 print("Explanation:", diagnosis.explanation)
 print("Recommended action:", diagnosis.recommended_action)

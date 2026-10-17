@@ -19,7 +19,9 @@ class FakeRetrievalUseCase:
     def execute(self, request):
         self.queries.append(request.query)
 
-        response = self.responses[min(self.call_count, len(self.responses) - 1)]
+        response = self.responses[
+            min(self.call_count, len(self.responses) - 1)
+        ]
         self.call_count += 1
 
         return response
@@ -50,9 +52,11 @@ class FakeDiagnosticProvider:
 class FakeGenerationProvider:
     def __init__(self) -> None:
         self.call_count = 0
+        self.queries: list[str] = []
 
     def generate(self, query: str, context: str) -> str:
         self.call_count += 1
+        self.queries.append(query)
         return f"Answer to: {query}"
 
 
@@ -103,6 +107,8 @@ def test_graph_generates_answer_when_retrieval_succeeds():
     )
 
     assert result["evaluation"]["success"] is True
+    assert result["query"] == "What does pgvector do?"
+    assert result["retrieval_query"] == "What does pgvector do?"
     assert result["answer"] == "Answer to: What does pgvector do?"
     assert result["retry_count"] == 0
     assert diagnostic.call_count == 0
@@ -110,6 +116,9 @@ def test_graph_generates_answer_when_retrieval_succeeds():
 
 
 def test_graph_rewrites_query_and_retries():
+    original_query = "How can PostgreSQL store employee salaries?"
+    rewritten_query = "How does PostgreSQL store employee data?"
+
     retrieval = FakeRetrievalUseCase(
         [
             [make_chunk(0.3)],
@@ -120,7 +129,7 @@ def test_graph_rewrites_query_and_retries():
         [
             (
                 RecoveryAction.REWRITE_QUERY,
-                "How does PostgreSQL store employee data?",
+                rewritten_query,
             )
         ]
     )
@@ -134,27 +143,40 @@ def test_graph_rewrites_query_and_retries():
 
     result = graph.invoke(
         {
-            "query": "How can PostgreSQL store employee salaries?",
+            "query": original_query,
             "top_k": 3,
             "min_relevance_score": 0.6,
         }
     )
 
     assert result["evaluation"]["success"] is True
-    assert result["answer"] is not None
-    assert result["retry_count"] == 1
+
+    # Preserve both queries in the final state.
+    assert result["query"] == original_query
+    assert result["retrieval_query"] == rewritten_query
+
+    # Retrieval uses the original query first, then the rewrite.
     assert retrieval.call_count == 2
     assert retrieval.queries == [
-        "How can PostgreSQL store employee salaries?",
-        "How does PostgreSQL store employee data?",
+        original_query,
+        rewritten_query,
     ]
+
+    # The original question, not the rewritten search query,
+    # is passed to answer generation.
+    assert generation.queries == [original_query]
+    assert result["answer"] == f"Answer to: {original_query}"
+
+    assert result["retry_count"] == 1
     assert diagnostic.call_count == 1
     assert generation.call_count == 1
 
 
 def test_graph_stops_when_diagnosis_recommends_stop():
     retrieval = FakeRetrievalUseCase([[make_chunk(0.3)]])
-    diagnostic = FakeDiagnosticProvider([(RecoveryAction.STOP, None)])
+    diagnostic = FakeDiagnosticProvider(
+        [(RecoveryAction.STOP, None)]
+    )
     generation = FakeGenerationProvider()
 
     graph = build_test_graph(
@@ -175,6 +197,8 @@ def test_graph_stops_when_diagnosis_recommends_stop():
     assert result["evaluation"]["failure_type"] == "LOW_RELEVANCE"
     assert result["answer"] is None
     assert result["retry_count"] == 0
+    assert result["query"] == "Unrelated question"
+    assert result["retrieval_query"] == "Unrelated question"
     assert diagnostic.call_count == 1
     assert generation.call_count == 0
 
@@ -214,6 +238,8 @@ def test_graph_stops_after_max_retries():
     assert result["evaluation"]["success"] is False
     assert result["evaluation"]["failure_type"] == "LOW_RELEVANCE"
     assert result["answer"] is None
+    assert result["query"] == "Original query"
+    assert result["retrieval_query"] == "rewritten query 2"
     assert result["retry_count"] == 2
     assert retrieval.call_count == 3
     assert diagnostic.call_count == 3

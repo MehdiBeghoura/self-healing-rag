@@ -105,14 +105,19 @@ def build_rag_graph(
     )
 
     def retrieve_node(state: RAGState) -> dict:
+        # The original query stays unchanged. After a failed attempt,
+        # retrieval_query contains the rewritten query to search with.
+        retrieval_query = state.get("retrieval_query", state["query"])
+
         chunks = retrieval_use_case.execute(
             RetrieveDocumentsRequest(
-                query=state["query"],
+                query=retrieval_query,
                 top_k=state["top_k"],
             )
         )
 
         return {
+            "retrieval_query": retrieval_query,
             "retrieved_chunks": [_chunk_to_state(chunk) for chunk in chunks],
             "retry_count": state.get("retry_count", 0),
         }
@@ -152,7 +157,11 @@ def build_rag_graph(
 
         diagnosis = diagnostic_provider.diagnose(
             DiagnosisRequest(
-                query=state["query"],
+                original_query=state["query"],
+                retrieval_query=state.get(
+                    "retrieval_query",
+                    state["query"],
+                ),
                 failure_type=FailureType(evaluation["failure_type"]),
                 reason=evaluation["reason"],
                 retrieved_chunks=chunks,
@@ -166,9 +175,14 @@ def build_rag_graph(
     def decide_recovery_node(state: RAGState) -> dict:
         diagnosis = _diagnosis_from_state(state["diagnosis"])
 
+        # A rewrite must be different from the query that just failed,
+        # not necessarily from the original user question.
         decision = decide_recovery_use_case.execute(
             DecideRecoveryRequest(
-                original_query=state["query"],
+                original_query=state.get(
+                    "retrieval_query",
+                    state["query"],
+                ),
                 diagnosis=diagnosis,
                 retry_count=state.get("retry_count", 0),
                 max_retries=max_retries,
@@ -189,7 +203,7 @@ def build_rag_graph(
             raise ValueError("Apply recovery requires a valid query rewrite.")
 
         return {
-            "query": decision["rewritten_query"],
+            "retrieval_query": decision["rewritten_query"],
             "retry_count": state.get("retry_count", 0) + 1,
         }
 
@@ -198,6 +212,8 @@ def build_rag_graph(
 
         context = build_context(chunks)
 
+        # Generate for the original user question. The rewritten query
+        # was used to find better evidence, not to replace the request.
         answer = generation_provider.generate(
             query=state["query"],
             context=context,

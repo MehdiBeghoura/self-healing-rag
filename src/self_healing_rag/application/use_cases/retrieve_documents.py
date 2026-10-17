@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from uuid import UUID
 
 from self_healing_rag.application.ports.ingestion import EmbeddingProvider
 from self_healing_rag.application.ports.retrieval import (
@@ -11,6 +12,7 @@ from self_healing_rag.application.ports.retrieval import (
 class RetrieveDocumentsRequest:
     query: str
     top_k: int = 5
+    document_ids: tuple[UUID, ...] | None = None
 
 
 class RetrieveDocumentsUseCase:
@@ -39,4 +41,5 @@ class RetrieveDocumentsUseCase:
         return self._retriever.retrieve(
             embedding=query_embedding,
             top_k=request.top_k,
+            document_ids=request.document_ids,
         )

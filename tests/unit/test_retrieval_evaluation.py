@@ -50,16 +50,53 @@ def test_score_equal_to_threshold_is_accepted():
     assert result.failure_type is None
 
 
+def test_valid_negative_cosine_similarity_is_accepted():
+    result = evaluate_retrieval(
+        scores=[-0.3],
+        min_relevance_score=-0.5,
+    )
+
+    assert result.success is True
+    assert result.top_score == -0.3
+
+
 @pytest.mark.parametrize(
     "threshold",
-    [-1.1, 1.1],
+    [
+        -1.1,
+        1.1,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+    ],
 )
 def test_invalid_relevance_threshold_is_rejected(threshold: float):
     with pytest.raises(
         ValueError,
-        match="min_relevance_score must be between -1 and 1",
+        match="min_relevance_score must be finite and between -1 and 1",
     ):
         evaluate_retrieval(
             scores=[0.5],
             min_relevance_score=threshold,
+        )
+
+
+@pytest.mark.parametrize(
+    "score",
+    [
+        -1.1,
+        1.1,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+    ],
+)
+def test_invalid_retrieval_score_is_rejected(score: float):
+    with pytest.raises(
+        ValueError,
+        match="retrieval scores must be finite and between -1 and 1",
+    ):
+        evaluate_retrieval(
+            scores=[score],
+            min_relevance_score=0.5,
         )
