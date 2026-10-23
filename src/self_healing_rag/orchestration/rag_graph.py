@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
+from opentelemetry import trace
 
 from self_healing_rag.application.ports.diagnosis import (
     DiagnosisRequest,
@@ -32,6 +33,8 @@ from self_healing_rag.orchestration.state import (
     RecoveryDecisionState,
     RetrievedChunkState,
 )
+
+tracer = trace.get_tracer(__name__)
 
 
 def _chunk_to_state(chunk: RetrievedChunk) -> RetrievedChunkState:
@@ -105,123 +108,197 @@ def build_rag_graph(
     )
 
     def retrieve_node(state: RAGState) -> dict:
-        # The original query stays unchanged. After a failed attempt,
-        # retrieval_query contains the rewritten query to search with.
-        retrieval_query = state.get("retrieval_query", state["query"])
+        with tracer.start_as_current_span("rag.retrieve") as span:
+            # Preserve the original question. Only the retrieval query
+            # changes when a recovery attempt rewrites it.
+            retrieval_query = state.get("retrieval_query", state["query"])
+            retry_count = state.get("retry_count", 0)
 
-        chunks = retrieval_use_case.execute(
-            RetrieveDocumentsRequest(
-                query=retrieval_query,
-                top_k=state["top_k"],
+            span.set_attribute("rag.retry_count", retry_count)
+            span.set_attribute("rag.retrieval.top_k", state["top_k"])
+
+            chunks = retrieval_use_case.execute(
+                RetrieveDocumentsRequest(
+                    query=retrieval_query,
+                    top_k=state["top_k"],
+                )
             )
-        )
 
-        return {
-            "retrieval_query": retrieval_query,
-            "retrieved_chunks": [_chunk_to_state(chunk) for chunk in chunks],
-            "retry_count": state.get("retry_count", 0),
-        }
+            span.set_attribute("rag.retrieved_chunk_count", len(chunks))
+
+            if chunks:
+                span.set_attribute(
+                    "rag.retrieval.top_score",
+                    max(chunk.score for chunk in chunks),
+                )
+
+            return {
+                "retrieval_query": retrieval_query,
+                "retrieved_chunks": [_chunk_to_state(chunk) for chunk in chunks],
+                "retry_count": retry_count,
+            }
 
     def evaluate_node(state: RAGState) -> dict:
-        chunks = [_chunk_from_state(chunk) for chunk in state["retrieved_chunks"]]
+        with tracer.start_as_current_span("rag.evaluate_retrieval") as span:
+            chunks = [_chunk_from_state(chunk) for chunk in state["retrieved_chunks"]]
 
-        evaluation = evaluation_use_case.execute(
-            EvaluateRetrievalRequest(
-                chunks=chunks,
-                min_relevance_score=state["min_relevance_score"],
+            evaluation = evaluation_use_case.execute(
+                EvaluateRetrievalRequest(
+                    chunks=chunks,
+                    min_relevance_score=state["min_relevance_score"],
+                )
             )
-        )
 
-        return {
-            "evaluation": {
-                "success": evaluation.success,
-                "failure_type": (
-                    evaluation.failure_type.value
-                    if evaluation.failure_type is not None
-                    else None
-                ),
-                "reason": evaluation.reason,
-                "document_count": evaluation.document_count,
-                "top_score": evaluation.top_score,
-            },
-            "answer": None,
-        }
+            span.set_attribute(
+                "rag.retrieval.success",
+                evaluation.success,
+            )
+            span.set_attribute(
+                "rag.retrieval.document_count",
+                evaluation.document_count,
+            )
+
+            if evaluation.top_score is not None:
+                span.set_attribute(
+                    "rag.retrieval.top_score",
+                    evaluation.top_score,
+                )
+
+            if evaluation.failure_type is not None:
+                span.set_attribute(
+                    "rag.retrieval.failure_type",
+                    evaluation.failure_type.value,
+                )
+
+            return {
+                "evaluation": {
+                    "success": evaluation.success,
+                    "failure_type": (
+                        evaluation.failure_type.value
+                        if evaluation.failure_type is not None
+                        else None
+                    ),
+                    "reason": evaluation.reason,
+                    "document_count": evaluation.document_count,
+                    "top_score": evaluation.top_score,
+                },
+                "answer": None,
+            }
 
     def diagnose_node(state: RAGState) -> dict:
-        evaluation = state["evaluation"]
+        with tracer.start_as_current_span("rag.diagnose") as span:
+            evaluation = state["evaluation"]
 
-        if evaluation["failure_type"] is None:
-            raise ValueError("A failed retrieval must have a failure type.")
+            if evaluation["failure_type"] is None:
+                raise ValueError("A failed retrieval must have a failure type.")
 
-        chunks = [_chunk_from_state(chunk) for chunk in state["retrieved_chunks"]]
+            chunks = [_chunk_from_state(chunk) for chunk in state["retrieved_chunks"]]
 
-        diagnosis = diagnostic_provider.diagnose(
-            DiagnosisRequest(
-                original_query=state["query"],
-                retrieval_query=state.get(
-                    "retrieval_query",
-                    state["query"],
-                ),
-                failure_type=FailureType(evaluation["failure_type"]),
-                reason=evaluation["reason"],
-                retrieved_chunks=chunks,
+            span.set_attribute(
+                "rag.retrieval.failure_type",
+                evaluation["failure_type"],
             )
-        )
+            span.set_attribute(
+                "rag.retrieved_chunk_count",
+                len(chunks),
+            )
 
-        return {
-            "diagnosis": _diagnosis_to_state(diagnosis),
-        }
+            diagnosis = diagnostic_provider.diagnose(
+                DiagnosisRequest(
+                    original_query=state["query"],
+                    retrieval_query=state.get(
+                        "retrieval_query",
+                        state["query"],
+                    ),
+                    failure_type=FailureType(evaluation["failure_type"]),
+                    reason=evaluation["reason"],
+                    retrieved_chunks=chunks,
+                )
+            )
+
+            span.set_attribute(
+                "rag.diagnosis.recommended_action",
+                diagnosis.recommended_action.value,
+            )
+            span.set_attribute(
+                "rag.diagnosis.rewrite_provided",
+                bool(diagnosis.rewritten_query and diagnosis.rewritten_query.strip()),
+            )
+
+            return {
+                "diagnosis": _diagnosis_to_state(diagnosis),
+            }
 
     def decide_recovery_node(state: RAGState) -> dict:
-        diagnosis = _diagnosis_from_state(state["diagnosis"])
+        with tracer.start_as_current_span("rag.decide_recovery") as span:
+            diagnosis = _diagnosis_from_state(state["diagnosis"])
+            retry_count = state.get("retry_count", 0)
 
-        # A rewrite must be different from the query that just failed,
-        # not necessarily from the original user question.
-        decision = decide_recovery_use_case.execute(
-            DecideRecoveryRequest(
-                original_query=state.get(
-                    "retrieval_query",
-                    state["query"],
-                ),
-                diagnosis=diagnosis,
-                retry_count=state.get("retry_count", 0),
-                max_retries=max_retries,
+            decision = decide_recovery_use_case.execute(
+                DecideRecoveryRequest(
+                    original_query=state.get(
+                        "retrieval_query",
+                        state["query"],
+                    ),
+                    diagnosis=diagnosis,
+                    retry_count=retry_count,
+                    max_retries=max_retries,
+                )
             )
-        )
 
-        return {
-            "recovery_decision": _recovery_decision_to_state(decision),
-        }
+            span.set_attribute(
+                "rag.recovery.action",
+                decision.action.value,
+            )
+            span.set_attribute("rag.retry_count", retry_count)
+            span.set_attribute("rag.max_retries", max_retries)
+
+            return {
+                "recovery_decision": _recovery_decision_to_state(decision),
+            }
 
     def apply_recovery_node(state: RAGState) -> dict:
-        decision = state["recovery_decision"]
+        with tracer.start_as_current_span("rag.apply_recovery") as span:
+            decision = state["recovery_decision"]
 
-        if (
-            decision["action"] != RecoveryAction.REWRITE_QUERY.value
-            or not decision["rewritten_query"]
-        ):
-            raise ValueError("Apply recovery requires a valid query rewrite.")
+            if (
+                decision["action"] != RecoveryAction.REWRITE_QUERY.value
+                or not decision["rewritten_query"]
+            ):
+                raise ValueError("Apply recovery requires a valid query rewrite.")
 
-        return {
-            "retrieval_query": decision["rewritten_query"],
-            "retry_count": state.get("retry_count", 0) + 1,
-        }
+            retry_count = state.get("retry_count", 0) + 1
+
+            span.set_attribute("rag.retry_count", retry_count)
+            span.set_attribute("rag.recovery.rewrite_applied", True)
+
+            return {
+                "retrieval_query": decision["rewritten_query"],
+                "retry_count": retry_count,
+            }
 
     def generate_node(state: RAGState) -> dict:
-        chunks = [_chunk_from_state(chunk) for chunk in state["retrieved_chunks"]]
+        with tracer.start_as_current_span("rag.generate_answer") as span:
+            chunks = [_chunk_from_state(chunk) for chunk in state["retrieved_chunks"]]
 
-        context = build_context(chunks)
+            context = build_context(chunks)
 
-        # Generate for the original user question. The rewritten query
-        # was used to find better evidence, not to replace the request.
-        answer = generation_provider.generate(
-            query=state["query"],
-            context=context,
-        )
+            span.set_attribute("rag.context.chunk_count", len(chunks))
 
-        return {
-            "answer": answer,
-        }
+            # Answer the original question, not the rewritten search query.
+            answer = generation_provider.generate(
+                query=state["query"],
+                context=context,
+            )
+
+            span.set_attribute(
+                "rag.generation.answer_present",
+                bool(answer and answer.strip()),
+            )
+
+            return {
+                "answer": answer,
+            }
 
     def route_after_evaluation(state: RAGState) -> str:
         if state["evaluation"]["success"]:

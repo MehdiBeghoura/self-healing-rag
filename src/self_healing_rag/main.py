@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from self_healing_rag.api.routes.health import router as health_router
 from self_healing_rag.api.routes.query import router as query_router
@@ -22,6 +23,9 @@ from self_healing_rag.infrastructure.llm.embeddings import (
 )
 from self_healing_rag.infrastructure.llm.generation import (
     OllamaGenerationClient,
+)
+from self_healing_rag.infrastructure.observability.tracing import (
+    get_tracer_provider,
 )
 from self_healing_rag.infrastructure.retrieval.pgvector_retriever import (
     PgVectorRetriever,
@@ -72,6 +76,12 @@ def create_app(
 
     app.include_router(health_router)
     app.include_router(query_router)
+
+    # Automatically create OpenTelemetry spans for incoming HTTP requests.
+    FastAPIInstrumentor.instrument_app(
+        app,
+        tracer_provider=get_tracer_provider(),
+    )
 
     return app
 

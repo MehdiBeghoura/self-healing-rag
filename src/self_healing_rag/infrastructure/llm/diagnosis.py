@@ -105,13 +105,18 @@ class OllamaDiagnosticClient:
             },
         )
 
-        parsed = DiagnosisResponse.model_validate_json(
-            response.message.content
-        )
+        parsed = DiagnosisResponse.model_validate_json(response.message.content)
+
+        # Enforce consistency between the selected action and its payload.
+        # The LLM may return a rewrite even when it recommends STOP.
+        rewritten_query = parsed.rewritten_query
+
+        if parsed.recommended_action == RecoveryAction.STOP:
+            rewritten_query = None
 
         return Diagnosis(
             failure_type=request.failure_type,
             explanation=parsed.explanation,
             recommended_action=parsed.recommended_action,
-            rewritten_query=parsed.rewritten_query,
+            rewritten_query=rewritten_query,
         )
