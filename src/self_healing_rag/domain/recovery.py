@@ -72,7 +72,9 @@ def decide_recovery(
             reason="No usable rewritten query was provided.",
         )
 
-    if rewritten_query == original_query.strip():
+    # Compare normalized text to prevent useless retries caused by
+    # differences only in capitalization or surrounding whitespace.
+    if rewritten_query.casefold() == original_query.strip().casefold():
         return RecoveryDecision(
             action=RecoveryAction.STOP,
             rewritten_query=None,

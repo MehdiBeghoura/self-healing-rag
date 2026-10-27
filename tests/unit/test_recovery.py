@@ -125,3 +125,21 @@ def test_policy_stops_when_rewritten_query_is_unchanged():
 
     assert result.action == RecoveryAction.STOP
     assert result.rewritten_query is None
+
+
+def test_policy_stops_when_rewritten_query_differs_only_in_case_and_whitespace():
+    diagnosis = make_diagnosis(
+        failure_type=FailureType.LOW_RELEVANCE,
+        action=RecoveryAction.REWRITE_QUERY,
+        rewritten_query="  ORIGINAL QUERY  ",
+    )
+
+    result = decide_recovery(
+        original_query="Original query",
+        diagnosis=diagnosis,
+        retry_count=0,
+        max_retries=2,
+    )
+
+    assert result.action == RecoveryAction.STOP
+    assert result.rewritten_query is None
