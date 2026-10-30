@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from opentelemetry import trace
 
@@ -95,6 +96,7 @@ def build_rag_graph(
     diagnostic_provider: DiagnosticProvider,
     generation_provider: GenerationProvider,
     max_retries: int = 2,
+    checkpointer: BaseCheckpointSaver | None = None,
 ):
     if max_retries < 0:
         raise ValueError("max_retries cannot be negative")
@@ -345,4 +347,4 @@ def build_rag_graph(
     builder.add_edge("apply_recovery", "retrieve")
     builder.add_edge("generate", END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)

@@ -1,5 +1,6 @@
 import logging
 from typing import Annotated, Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -58,6 +59,7 @@ class RecoveryDecisionResponse(BaseModel):
 
 
 class QueryResponse(BaseModel):
+    run_id: str
     query: str
     retrieval_query: str
     answer: str | None
@@ -85,24 +87,36 @@ def query_rag(
     payload: QueryRequest,
     rag_graph: Annotated[Any, Depends(get_rag_graph)],
 ) -> QueryResponse:
+    # Each API request gets its own unique workflow thread.
+    run_id = str(uuid4())
+
+    config = {
+        "configurable": {
+            "thread_id": run_id,
+        }
+    }
+
     try:
         result = rag_graph.invoke(
             {
                 "query": payload.query,
                 "top_k": payload.top_k,
-                "min_relevance_score": (
-                    settings.retrieval_min_relevance_score
-                ),
-            }
+                "min_relevance_score": (settings.retrieval_min_relevance_score),
+            },
+            config=config,
         )
+
     except Exception as exc:
-        logger.exception(
-            "RAG workflow failed while processing a query"
-        )
+        logger.exception("RAG workflow failed while processing a query")
 
         raise HTTPException(
             status_code=500,
             detail="The RAG workflow could not process the request.",
         ) from exc
 
-    return QueryResponse.model_validate(result)
+    return QueryResponse.model_validate(
+        {
+            **result,
+            "run_id": run_id,
+        }
+    )

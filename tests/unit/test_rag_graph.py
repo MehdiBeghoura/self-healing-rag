@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from langgraph.checkpoint.memory import InMemorySaver
+
 from self_healing_rag.application.ports.diagnosis import DiagnosisRequest
 from self_healing_rag.application.ports.retrieval import RetrievedChunk
 from self_healing_rag.application.use_cases.evaluate_retrieval import (
@@ -19,9 +21,7 @@ class FakeRetrievalUseCase:
     def execute(self, request):
         self.queries.append(request.query)
 
-        response = self.responses[
-            min(self.call_count, len(self.responses) - 1)
-        ]
+        response = self.responses[min(self.call_count, len(self.responses) - 1)]
         self.call_count += 1
 
         return response
@@ -77,6 +77,7 @@ def build_test_graph(
     diagnostic: FakeDiagnosticProvider,
     generation: FakeGenerationProvider,
     max_retries: int = 2,
+    checkpointer: InMemorySaver | None = None,
 ):
     return build_rag_graph(
         retrieval_use_case=retrieval,
@@ -84,6 +85,7 @@ def build_test_graph(
         diagnostic_provider=diagnostic,
         generation_provider=generation,
         max_retries=max_retries,
+        checkpointer=checkpointer,
     )
 
 
@@ -174,9 +176,7 @@ def test_graph_rewrites_query_and_retries():
 
 def test_graph_stops_when_diagnosis_recommends_stop():
     retrieval = FakeRetrievalUseCase([[make_chunk(0.3)]])
-    diagnostic = FakeDiagnosticProvider(
-        [(RecoveryAction.STOP, None)]
-    )
+    diagnostic = FakeDiagnosticProvider([(RecoveryAction.STOP, None)])
     generation = FakeGenerationProvider()
 
     graph = build_test_graph(
@@ -244,3 +244,38 @@ def test_graph_stops_after_max_retries():
     assert retrieval.call_count == 3
     assert diagnostic.call_count == 3
     assert generation.call_count == 0
+
+
+def test_graph_persists_state_for_thread():
+    thread_id = "test-rag-run-001"
+    query = "What does pgvector do?"
+
+    checkpointer = InMemorySaver()
+
+    graph = build_test_graph(
+        retrieval=FakeRetrievalUseCase([[make_chunk(0.9)]]),
+        diagnostic=FakeDiagnosticProvider([]),
+        generation=FakeGenerationProvider(),
+        checkpointer=checkpointer,
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
+
+    result = graph.invoke(
+        {
+            "query": query,
+            "top_k": 3,
+            "min_relevance_score": 0.6,
+        },
+        config=config,
+    )
+
+    snapshot = graph.get_state(config)
+
+    assert snapshot.values["query"] == query
+    assert snapshot.values["evaluation"]["success"] is True
+    assert snapshot.values["answer"] == result["answer"]

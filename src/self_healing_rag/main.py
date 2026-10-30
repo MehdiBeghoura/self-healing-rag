@@ -1,8 +1,9 @@
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from self_healing_rag.api.routes.health import router as health_router
@@ -14,6 +15,9 @@ from self_healing_rag.application.use_cases.retrieve_documents import (
     RetrieveDocumentsUseCase,
 )
 from self_healing_rag.config import settings
+from self_healing_rag.infrastructure.database.checkpointing import (
+    postgres_checkpointer,
+)
 from self_healing_rag.infrastructure.database.session import engine
 from self_healing_rag.infrastructure.llm.diagnosis import (
     OllamaDiagnosticClient,
@@ -32,8 +36,17 @@ from self_healing_rag.infrastructure.retrieval.pgvector_retriever import (
 )
 from self_healing_rag.orchestration.rag_graph import build_rag_graph
 
+GraphFactory = Callable[[BaseCheckpointSaver], Any]
 
-def build_application_graph() -> Any:
+CheckpointerFactory = Callable[
+    [],
+    AbstractContextManager[BaseCheckpointSaver],
+]
+
+
+def build_application_graph(
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> Any:
     embedding_client = OllamaEmbeddingClient()
     diagnostic_client = OllamaDiagnosticClient()
     generation_client = OllamaGenerationClient()
@@ -52,21 +65,25 @@ def build_application_graph() -> Any:
         diagnostic_provider=diagnostic_client,
         generation_provider=generation_client,
         max_retries=2,
+        checkpointer=checkpointer,
     )
 
 
 def create_app(
-    graph_factory: Callable[[], Any] = build_application_graph,
+    graph_factory: GraphFactory = build_application_graph,
+    checkpointer_factory: CheckpointerFactory = postgres_checkpointer,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
-            app.state.rag_graph = graph_factory()
-            yield
+            with checkpointer_factory() as checkpointer:
+                try:
+                    app.state.rag_graph = graph_factory(checkpointer)
+                    yield
+                finally:
+                    if hasattr(app.state, "rag_graph"):
+                        del app.state.rag_graph
         finally:
-            if hasattr(app.state, "rag_graph"):
-                del app.state.rag_graph
-
             engine.dispose()
 
     app = FastAPI(
@@ -77,7 +94,6 @@ def create_app(
     app.include_router(health_router)
     app.include_router(query_router)
 
-    # Automatically create OpenTelemetry spans for incoming HTTP requests.
     FastAPIInstrumentor.instrument_app(
         app,
         tracer_provider=get_tracer_provider(),
